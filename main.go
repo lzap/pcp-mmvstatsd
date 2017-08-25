@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"github.com/Sirupsen/logrus"
+	"github.com/performancecopilot/speed"
 	"io"
 	"net"
 	"os"
@@ -12,8 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"github.com/performancecopilot/speed"
-	"github.com/Sirupsen/logrus"
 )
 
 const (
@@ -120,7 +120,7 @@ func consume() {
 	}
 }
 
-func findBucket(client speed.Client, bucket string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric) {
+func findBucket(client speed.Client, bucket string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) speed.Metric {
 	if knownBuckets[bucket] == nil {
 		client.MustStop()
 		knownBuckets[bucket] = client.MustRegisterString(bucket, val, t, s, u)
