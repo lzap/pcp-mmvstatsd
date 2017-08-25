@@ -120,13 +120,18 @@ func consume() {
 	}
 }
 
-func findBucket(client speed.Client, bucket string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) speed.Metric {
+func findBucket(client speed.Client, bucket string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
 	if knownBuckets[bucket] == nil {
 		client.MustStop()
-		knownBuckets[bucket] = client.MustRegisterString(bucket, val, t, s, u)
-		client.MustStart()
+		defer client.MustStart()
+		var err error
+		knownBuckets[bucket], err = client.RegisterString(bucket, val, t, s, u)
+		if err != nil {
+			log.Printf("Unable to register bucket %s\n", bucket)
+			return nil, fmt.Errorf("Unable to register bucket %s", bucket)
+		}
 	}
-	return knownBuckets[bucket]
+	return knownBuckets[bucket], nil
 }
 
 func packetHandler(s *Packet, client speed.Client) {
@@ -136,23 +141,31 @@ func packetHandler(s *Packet, client speed.Client) {
 
 	switch s.Modifier {
 	case "ms":
-		findBucket(client, s.Bucket, float64(0), speed.DoubleType, speed.DiscreteSemantics, speed.MillisecondUnit).(speed.SingletonMetric).MustSet(s.ValFlt)
-		log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
-	case "g":
-		m := findBucket(client, s.Bucket, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit).(speed.SingletonMetric)
-		if s.ValStr == "" {
-			m.MustSet(s.ValFlt)
-			log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
-		} else if s.ValStr == "+" {
-			m.MustSet(m.Val().(float64) + s.ValFlt)
-			log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
-		} else if s.ValStr == "-" {
-			m.MustSet(m.Val().(float64) - s.ValFlt)
+		m, err := findBucket(client, s.Bucket, float64(0), speed.DoubleType, speed.DiscreteSemantics, speed.MillisecondUnit)
+		if err == nil {
+			m.(speed.SingletonMetric).MustSet(s.ValFlt)
 			log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 		}
+	case "g":
+		m, err := findBucket(client, s.Bucket, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit)
+		if err == nil {
+			if s.ValStr == "" {
+				m.(speed.SingletonMetric).MustSet(s.ValFlt)
+				log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+			} else if s.ValStr == "+" {
+				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) + s.ValFlt)
+				log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+			} else if s.ValStr == "-" {
+				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) - s.ValFlt)
+				log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+			}
+		}
 	case "c":
-		findBucket(client, s.Bucket, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit).(speed.SingletonMetric).MustSet(int64(s.ValFlt))
-		log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+		m, err := findBucket(client, s.Bucket, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
+		if err == nil {
+			m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt))
+			log.Printf("%s %d\n", s.Bucket, m.(speed.SingletonMetric).Val())
+		}
 	case "s":
 		// NOT IMPLEMENTED
 	}

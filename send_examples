@@ -1,8 +1,8 @@
 while true; do
-  echo "example.counter:1|c" | nc -w 1 -u localhost 8125
+  echo "example.counter:23230000|c" | nc -w 1 -u localhost 8125
   echo "example.timer:120|ms" | nc -w 1 -u localhost 8125
   echo "example.gauge:10|g" | nc -w 1 -u localhost 8125
   echo "example.gauge:+1|g" | nc -w 1 -u localhost 8125
   echo "example.gauge:-1|g" | nc -w 1 -u localhost 8125
-  sleep 2
+  sleep 0.2
 done
