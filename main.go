@@ -99,9 +99,6 @@ func initLogging() {
 }
 
 func consume() {
-	if *debug {
-		speed.EnableLogging(true)
-	}
 	client, err := speed.NewPCPClient("statsd")
 	if err != nil {
 		panic(err)
