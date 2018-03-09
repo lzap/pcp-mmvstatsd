@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"github.com/Sirupsen/logrus"
 	"github.com/performancecopilot/speed"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -29,33 +29,6 @@ type Packet struct {
 	ValStr   string
 	Modifier string
 	Sampling float32
-}
-
-type Float64Slice []float64
-
-func (s Float64Slice) Len() int           { return len(s) }
-func (s Float64Slice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s Float64Slice) Less(i, j int) bool { return s[i] < s[j] }
-
-type Percentiles []*Percentile
-type Percentile struct {
-	float float64
-	str   string
-}
-
-func (a *Percentiles) Set(s string) error {
-	f, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return err
-	}
-	*a = append(*a, &Percentile{f, strings.Replace(s, ".", "_", -1)})
-	return nil
-}
-func (p *Percentile) String() string {
-	return p.str
-}
-func (a *Percentiles) String() string {
-	return fmt.Sprintf("%v", *a)
 }
 
 func sanitizeBucket(bucket string) string {
@@ -91,12 +64,7 @@ var (
 
 var In = make(chan *Packet, MAX_UNPROCESSED_PACKETS)
 var knownBuckets = make(map[string]speed.Metric)
-var log = logrus.New()
-
-func initLogging() {
-	//log.Formatter = new(prefixed.TextFormatter)
-	log.Level = logrus.DebugLevel
-}
+var logging = log.New(os.Stdout, "", 0)
 
 func consume() {
 	client, err := speed.NewPCPClient("statsd")
@@ -109,7 +77,7 @@ func consume() {
 		select {
 		case sig := <-signalchan:
 			speed.EraseFileOnStop = true
-			log.Printf("Shutting down on signal %v\n", sig)
+			logging.Printf("Shutting down on signal %v\n", sig)
 			return
 		case s := <-In:
 			packetHandler(s, client)
@@ -124,7 +92,7 @@ func findBucket(client speed.Client, bucket string, val interface{}, t speed.Met
 		var err error
 		knownBuckets[bucket], err = client.RegisterString(bucket, val, t, s, u)
 		if err != nil {
-			log.Printf("Unable to register bucket %s\n", bucket)
+			logging.Printf("Unable to register bucket %s\n", bucket)
 			return nil, fmt.Errorf("Unable to register bucket %s", bucket)
 		}
 	}
@@ -133,7 +101,7 @@ func findBucket(client speed.Client, bucket string, val interface{}, t speed.Met
 
 func packetHandler(s *Packet, client speed.Client) {
 	if *debug {
-		log.Printf("DEBUG: rcvd packet: %+v\n", s)
+		logging.Printf("DEBUG: rcvd packet: %+v\n", s)
 	}
 
 	switch s.Modifier {
@@ -141,27 +109,27 @@ func packetHandler(s *Packet, client speed.Client) {
 		m, err := findBucket(client, s.Bucket, float64(0), speed.DoubleType, speed.DiscreteSemantics, speed.MillisecondUnit)
 		if err == nil {
 			m.(speed.SingletonMetric).MustSet(s.ValFlt)
-			log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+			logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 		}
 	case "g":
 		m, err := findBucket(client, s.Bucket, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit)
 		if err == nil {
 			if s.ValStr == "" {
 				m.(speed.SingletonMetric).MustSet(s.ValFlt)
-				log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 			} else if s.ValStr == "+" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) + s.ValFlt)
-				log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 			} else if s.ValStr == "-" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) - s.ValFlt)
-				log.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 			}
 		}
 	case "c":
 		m, err := findBucket(client, s.Bucket, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
 		if err == nil {
 			m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt))
-			log.Printf("%s %d\n", s.Bucket, m.(speed.SingletonMetric).Val())
+			logging.Printf("%s %d\n", s.Bucket, m.(speed.SingletonMetric).Val())
 		}
 	case "s":
 		// NOT IMPLEMENTED
@@ -213,7 +181,7 @@ func (mp *MsgParser) Next() (*Packet, bool) {
 		buf = buf[:idx+n]
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("ERROR: %s", err)
+				logging.Printf("ERROR: %s", err)
 			}
 
 			mp.done = true
@@ -268,7 +236,7 @@ func parseLine(line []byte) *Packet {
 		if len(split) == 3 && len(split[2]) > 0 && split[2][0] == '@' {
 			f64, err := strconv.ParseFloat(string(split[2][1:]), 32)
 			if err != nil {
-				log.Printf(
+				logging.Printf(
 					"ERROR: failed to ParseFloat %s - %s",
 					string(split[2][1:]),
 					err,
@@ -301,7 +269,7 @@ func parseLine(line []byte) *Packet {
 	case "c":
 		floatval, err = strconv.ParseFloat(string(val), 64)
 		if err != nil {
-			log.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
+			logging.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
 			return nil
 		}
 	case "g":
@@ -315,7 +283,7 @@ func parseLine(line []byte) *Packet {
 		}
 		floatval, err = strconv.ParseFloat(s, 64)
 		if err != nil {
-			log.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
+			logging.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
 			return nil
 		}
 	case "s":
@@ -323,11 +291,11 @@ func parseLine(line []byte) *Packet {
 	case "ms":
 		floatval, err = strconv.ParseFloat(string(val), 64)
 		if err != nil {
-			log.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
+			logging.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
 			return nil
 		}
 	default:
-		log.Printf("ERROR: unrecognized type code %q for metric %s", typeCode, name)
+		logging.Printf("ERROR: unrecognized type code %q for metric %s", typeCode, name)
 		return nil
 	}
 
@@ -342,7 +310,7 @@ func parseLine(line []byte) *Packet {
 
 func logParseFail(line []byte) {
 	if *debug {
-		log.Printf("ERROR: failed to parse line: %q\n", string(line))
+		logging.Printf("ERROR: failed to parse line: %q\n", string(line))
 	}
 }
 
@@ -364,10 +332,10 @@ func parseTo(conn io.ReadCloser, partialReads bool, out chan<- *Packet) {
 
 func udpListener() {
 	address, _ := net.ResolveUDPAddr("udp", *serviceAddress)
-	log.Printf("listening on %s UDP", address)
+	logging.Printf("listening on %s UDP", address)
 	listener, err := net.ListenUDP("udp", address)
 	if err != nil {
-		log.Fatalf("ERROR: ListenUDP - %s", err)
+		logging.Fatalf("ERROR: ListenUDP - %s", err)
 	}
 
 	parseTo(listener, false, In)
@@ -375,24 +343,23 @@ func udpListener() {
 
 func tcpListener() {
 	address, _ := net.ResolveTCPAddr("tcp", *tcpServiceAddress)
-	log.Printf("listening on %s TCP", address)
+	logging.Printf("listening on %s TCP", address)
 	listener, err := net.ListenTCP("tcp", address)
 	if err != nil {
-		log.Fatalf("ERROR: ListenTCP - %s", err)
+		logging.Fatalf("ERROR: ListenTCP - %s", err)
 	}
 	defer listener.Close()
 
 	for {
 		conn, err := listener.AcceptTCP()
 		if err != nil {
-			log.Fatalf("ERROR: AcceptTCP - %s", err)
+			logging.Fatalf("ERROR: AcceptTCP - %s", err)
 		}
 		go parseTo(conn, true, In)
 	}
 }
 
 func main() {
-	initLogging()
 	flag.Parse()
 
 	if *showVersion {
