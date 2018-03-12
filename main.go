@@ -131,8 +131,6 @@ func packetHandler(s *Packet, client speed.Client) {
 			m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt))
 			logging.Printf("%s %d\n", s.Bucket, m.(speed.SingletonMetric).Val())
 		}
-	case "s":
-		// NOT IMPLEMENTED
 	}
 }
 
