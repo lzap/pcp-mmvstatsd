@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	MAX_UNPROCESSED_PACKETS = 1000
+	MAX_UNPROCESSED_PACKETS = 2048
 	TCP_READ_SIZE           = 4096
 )
 
@@ -38,7 +38,11 @@ func sanitizeBucket(bucket string) string {
 	for i := 0; i < len(bucket); i++ {
 		c := bucket[i]
 		switch {
-		case (c >= byte('a') && c <= byte('z')) || (c >= byte('A') && c <= byte('Z')) || (c >= byte('0') && c <= byte('9')) || c == byte('-') || c == byte('.') || c == byte('_'):
+		case (c >= byte('a') && c <= byte('z')) ||
+			(c >= byte('A') && c <= byte('Z')) ||
+			(c >= byte('0') && c <= byte('9')) ||
+			c == byte('-') || c == byte('.') ||
+			c == byte('_'):
 			b[bl] = c
 			bl++
 		case c == byte(' '):
@@ -63,7 +67,7 @@ var (
 )
 
 var In = make(chan *Packet, MAX_UNPROCESSED_PACKETS)
-var knownBuckets = make(map[string]speed.Metric)
+var metricMap = make(map[string]speed.Metric)
 var logging = log.New(os.Stdout, "", 0)
 
 func consume() {
@@ -85,18 +89,18 @@ func consume() {
 	}
 }
 
-func findBucket(client speed.Client, bucket string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
-	if knownBuckets[bucket] == nil {
+func findMetric(client speed.Client, bucket string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
+	if metricMap[bucket] == nil {
 		client.MustStop()
 		defer client.MustStart()
 		var err error
-		knownBuckets[bucket], err = client.RegisterString(bucket, val, t, s, u)
+		metricMap[bucket], err = client.RegisterString(bucket, val, t, s, u)
 		if err != nil {
 			logging.Printf("Unable to register bucket %s\n", bucket)
 			return nil, fmt.Errorf("Unable to register bucket %s", bucket)
 		}
 	}
-	return knownBuckets[bucket], nil
+	return metricMap[bucket], nil
 }
 
 func packetHandler(s *Packet, client speed.Client) {
@@ -106,13 +110,13 @@ func packetHandler(s *Packet, client speed.Client) {
 
 	switch s.Modifier {
 	case "ms":
-		m, err := findBucket(client, s.Bucket, float64(0), speed.DoubleType, speed.DiscreteSemantics, speed.MillisecondUnit)
+		m, err := findMetric(client, s.Bucket, float64(0), speed.DoubleType, speed.DiscreteSemantics, speed.MillisecondUnit)
 		if err == nil {
 			m.(speed.SingletonMetric).MustSet(s.ValFlt)
 			logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 		}
 	case "g":
-		m, err := findBucket(client, s.Bucket, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit)
+		m, err := findMetric(client, s.Bucket, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit)
 		if err == nil {
 			if s.ValStr == "" {
 				m.(speed.SingletonMetric).MustSet(s.ValFlt)
@@ -126,7 +130,7 @@ func packetHandler(s *Packet, client speed.Client) {
 			}
 		}
 	case "c":
-		m, err := findBucket(client, s.Bucket, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
+		m, err := findMetric(client, s.Bucket, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
 		if err == nil {
 			m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt))
 			logging.Printf("%s %d\n", s.Bucket, m.(speed.SingletonMetric).Val())
