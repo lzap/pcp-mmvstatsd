@@ -68,6 +68,7 @@ var (
 
 var In = make(chan *Packet, MAX_UNPROCESSED_PACKETS)
 var metricMap = make(map[string]speed.Metric)
+var histograms = make(map[string]speed.Histogram)
 var logging = log.New(os.Stdout, "", 0)
 
 func consume() {
@@ -89,6 +90,20 @@ func consume() {
 	}
 }
 
+func findHistogram(client speed.Client, bucket string) (speed.Histogram, error) {
+	if histograms[bucket] == nil {
+		client.MustStop()
+		defer client.MustStart()
+		var err error
+		histograms[bucket], err = speed.NewPCPHistogram(bucket, 0, 100000, 3, speed.MillisecondUnit)
+		if err != nil {
+			logging.Printf("Unable to register metric %s\n", bucket)
+			return nil, fmt.Errorf("Unable to register metric %s", bucket)
+		}
+	}
+	return histograms[bucket], nil
+}
+
 func findMetric(client speed.Client, bucket string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
 	if metricMap[bucket] == nil {
 		client.MustStop()
@@ -105,35 +120,45 @@ func findMetric(client speed.Client, bucket string, val interface{}, t speed.Met
 
 func packetHandler(s *Packet, client speed.Client) {
 	if *debug {
-		logging.Printf("DEBUG: rcvd packet: %+v\n", s)
+		logging.Printf("Packet: %+v\n", s)
 	}
 
 	switch s.Modifier {
 	case "ms":
-		m, err := findMetric(client, s.Bucket, float64(0), speed.DoubleType, speed.DiscreteSemantics, speed.MillisecondUnit)
+		m, err := findHistogram(client, s.Bucket)
 		if err == nil {
-			m.(speed.SingletonMetric).MustSet(s.ValFlt)
-			logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+			m.MustRecord(int64(s.ValFlt))
+			if *debug {
+				logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+			}
 		}
 	case "g":
 		m, err := findMetric(client, s.Bucket, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit)
 		if err == nil {
 			if s.ValStr == "" {
 				m.(speed.SingletonMetric).MustSet(s.ValFlt)
-				logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				if *debug {
+					logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				}
 			} else if s.ValStr == "+" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) + s.ValFlt)
-				logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				if *debug {
+					logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				}
 			} else if s.ValStr == "-" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) - s.ValFlt)
-				logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				if *debug {
+					logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				}
 			}
 		}
 	case "c":
 		m, err := findMetric(client, s.Bucket, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
 		if err == nil {
 			m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt))
-			logging.Printf("%s %d\n", s.Bucket, m.(speed.SingletonMetric).Val())
+			if *debug {
+				logging.Printf("%s %d\n", s.Bucket, m.(speed.SingletonMetric).Val())
+			}
 		}
 	}
 }
