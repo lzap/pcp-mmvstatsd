@@ -49,7 +49,7 @@ func sanitizeBucket(bucket string) string {
 			b[bl] = byte('_')
 			bl++
 		case c == byte('/'):
-			b[bl] = byte('-')
+			b[bl] = byte('_')
 			bl++
 		}
 	}
@@ -94,12 +94,13 @@ func findHistogram(client speed.Client, bucket string) (speed.Histogram, error) 
 	if histograms[bucket] == nil {
 		client.MustStop()
 		defer client.MustStart()
-		var err error
-		histograms[bucket], err = speed.NewPCPHistogram(bucket, 0, 100000, 3, speed.MillisecondUnit)
+		var h, err = speed.NewPCPHistogram(bucket, 0, 100000, 3, speed.MillisecondUnit)
+		client.MustRegister(h)
 		if err != nil {
-			logging.Printf("Unable to register metric %s\n", bucket)
-			return nil, fmt.Errorf("Unable to register metric %s", bucket)
+			logging.Printf("Unable to register histogram %s (%s)\n", bucket, err)
+			return nil, fmt.Errorf("Unable to register histogram %s", bucket)
 		}
+		histograms[bucket] = h
 	}
 	return histograms[bucket], nil
 }
@@ -111,8 +112,8 @@ func findMetric(client speed.Client, bucket string, val interface{}, t speed.Met
 		var err error
 		metricMap[bucket], err = client.RegisterString(bucket, val, t, s, u)
 		if err != nil {
-			logging.Printf("Unable to register bucket %s\n", bucket)
-			return nil, fmt.Errorf("Unable to register bucket %s", bucket)
+			logging.Printf("Unable to register metric %s (%s)\n", bucket, err)
+			return nil, fmt.Errorf("Unable to register metric %s", bucket)
 		}
 	}
 	return metricMap[bucket], nil
