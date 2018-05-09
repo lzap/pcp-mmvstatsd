@@ -76,6 +76,11 @@ func consume() {
 	if err != nil {
 		panic(err)
 	}
+	// keep metrics across restarts
+	err = client.SetFlag(0)
+	if err != nil {
+		panic(err)
+	}
 	client.MustStart()
 	defer client.Stop()
 	for {
@@ -94,7 +99,7 @@ func findHistogram(client speed.Client, bucket string) (speed.Histogram, error) 
 	if histograms[bucket] == nil {
 		client.MustStop()
 		defer client.MustStart()
-		var h, err = speed.NewPCPHistogram(bucket, 0, 100000, 3, speed.MillisecondUnit)
+		var h, err = speed.NewPCPHistogram(bucket, 0, 86400000, 3, speed.MillisecondUnit) // 0 to 24 hours
 		client.MustRegister(h)
 		if err != nil {
 			logging.Printf("Unable to register histogram %s (%s)\n", bucket, err)
