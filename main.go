@@ -365,7 +365,9 @@ func parseTo(conn io.ReadCloser, partialReads bool, out chan<- *Packet) {
 
 func udpListener() {
 	address, _ := net.ResolveUDPAddr("udp", *serviceAddress)
-	logging.Printf("listening on %s UDP", address)
+	if *debug {
+		logging.Printf("listening on %s UDP", address)
+	}
 	listener, err := net.ListenUDP("udp", address)
 	if err != nil {
 		logging.Fatalf("ERROR: ListenUDP - %s", err)
@@ -376,7 +378,9 @@ func udpListener() {
 
 func tcpListener() {
 	address, _ := net.ResolveTCPAddr("tcp", *tcpServiceAddress)
-	logging.Printf("listening on %s TCP", address)
+	if *debug {
+		logging.Printf("listening on %s TCP", address)
+	}
 	listener, err := net.ListenTCP("tcp", address)
 	if err != nil {
 		logging.Fatalf("ERROR: ListenTCP - %s", err)
