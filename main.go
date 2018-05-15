@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/performancecopilot/speed"
 	"io"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -24,52 +23,27 @@ const (
 var signalchan chan os.Signal
 
 type Packet struct {
-	Bucket   string
+	Metric   string
 	ValFlt   float64
 	ValStr   string
 	Modifier string
 	Sampling float32
 }
 
-func sanitizeBucket(bucket string) string {
-	b := make([]byte, len(bucket))
-	var bl int
-
-	for i := 0; i < len(bucket); i++ {
-		c := bucket[i]
-		switch {
-		case (c >= byte('a') && c <= byte('z')) ||
-			(c >= byte('A') && c <= byte('Z')) ||
-			(c >= byte('0') && c <= byte('9')) ||
-			c == byte('-') || c == byte('.') ||
-			c == byte('_'):
-			b[bl] = c
-			bl++
-		case c == byte(' '):
-			b[bl] = byte('_')
-			bl++
-		case c == byte('/'):
-			b[bl] = byte('_')
-			bl++
-		}
-	}
-	return string(b[:bl])
-}
-
 var (
 	serviceAddress    = flag.String("address", ":8125", "UDP service address")
 	tcpServiceAddress = flag.String("tcpaddr", "", "TCP service address, if set")
 	maxUdpPacketSize  = flag.Int64("max-udp-packet-size", 1472, "Maximum UDP packet size")
-	debug             = flag.Bool("debug", false, "print statistics sent to graphite")
+	debug             = flag.Bool("debug", false, "enable debugging output")
+	verbose           = flag.Bool("verbose", false, "enable verbose output")
+	trace             = flag.Bool("trace", false, "enable tracing output")
 	showVersion       = flag.Bool("version", false, "print version string")
-	prefix            = flag.String("prefix", "", "Prefix for all stats")
-	postfix           = flag.String("postfix", "", "Postfix for all stats")
+	//mappingFile       = flag.String("mapping", "mapping.json", "Mapping file (JSON format)")
 )
 
 var In = make(chan *Packet, MAX_UNPROCESSED_PACKETS)
 var metricMap = make(map[string]speed.Metric)
 var histograms = make(map[string]speed.Histogram)
-var logging = log.New(os.Stdout, "", 0)
 
 func consume() {
 	client, err := speed.NewPCPClient("statsd")
@@ -87,7 +61,7 @@ func consume() {
 		select {
 		case sig := <-signalchan:
 			speed.EraseFileOnStop = true
-			logging.Printf("Shutting down on signal %v\n", sig)
+			DebugLog.Printf("Shutting down on signal %v\n", sig)
 			return
 		case s := <-In:
 			packetHandler(s, client)
@@ -102,7 +76,7 @@ func findHistogram(client speed.Client, bucket string) (speed.Histogram, error) 
 		var h, err = speed.NewPCPHistogram(bucket, 0, 86400000, 3, speed.MillisecondUnit) // 0 to 24 hours
 		client.MustRegister(h)
 		if err != nil {
-			logging.Printf("Unable to register histogram %s (%s)\n", bucket, err)
+			ErrorLog.Printf("Unable to register histogram %s (%s)\n", bucket, err)
 			return nil, fmt.Errorf("Unable to register histogram %s", bucket)
 		}
 		histograms[bucket] = h
@@ -110,60 +84,60 @@ func findHistogram(client speed.Client, bucket string) (speed.Histogram, error) 
 	return histograms[bucket], nil
 }
 
-func findMetric(client speed.Client, bucket string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
-	if metricMap[bucket] == nil {
+func findMetric(client speed.Client, metric string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
+	if metricMap[metric] == nil {
 		client.MustStop()
 		defer client.MustStart()
 		var err error
-		metricMap[bucket], err = client.RegisterString(bucket, val, t, s, u)
+		metricMap[metric], err = client.RegisterString(metric, val, t, s, u)
 		if err != nil {
-			logging.Printf("Unable to register metric %s (%s)\n", bucket, err)
-			return nil, fmt.Errorf("Unable to register metric %s", bucket)
+			ErrorLog.Printf("Unable to register metric %s (%s)\n", metric, err)
+			return nil, fmt.Errorf("Unable to register metric %s", metric)
 		}
 	}
-	return metricMap[bucket], nil
+	return metricMap[metric], nil
 }
 
 func packetHandler(s *Packet, client speed.Client) {
 	if *debug {
-		logging.Printf("Packet: %+v\n", s)
+		TraceLog.Printf("Packet: %+v\n", s)
 	}
 
 	switch s.Modifier {
 	case "ms":
-		m, err := findHistogram(client, s.Bucket)
+		m, err := findHistogram(client, s.Metric)
 		if err == nil {
 			m.MustRecord(int64(s.ValFlt))
 			if *debug {
-				logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				DebugLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 			}
 		}
 	case "g":
-		m, err := findMetric(client, s.Bucket, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit)
+		m, err := findMetric(client, s.Metric, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit)
 		if err == nil {
 			if s.ValStr == "" {
 				m.(speed.SingletonMetric).MustSet(s.ValFlt)
 				if *debug {
-					logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+					DebugLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 				}
 			} else if s.ValStr == "+" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) + s.ValFlt)
 				if *debug {
-					logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+					DebugLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 				}
 			} else if s.ValStr == "-" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) - s.ValFlt)
 				if *debug {
-					logging.Printf("%s %s\n", s.Bucket, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+					DebugLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 				}
 			}
 		}
 	case "c":
-		m, err := findMetric(client, s.Bucket, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
+		m, err := findMetric(client, s.Metric, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
 		if err == nil {
 			m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt))
 			if *debug {
-				logging.Printf("%s %d\n", s.Bucket, m.(speed.SingletonMetric).Val())
+				DebugLog.Printf("%s %d\n", s.Metric, m.(speed.SingletonMetric).Val())
 			}
 		}
 	}
@@ -214,7 +188,7 @@ func (mp *MsgParser) Next() (*Packet, bool) {
 		buf = buf[:idx+n]
 		if err != nil {
 			if err != io.EOF {
-				logging.Printf("ERROR: %s", err)
+				ErrorLog.Printf("ERROR: %s", err)
 			}
 
 			mp.done = true
@@ -254,6 +228,31 @@ func (mp *MsgParser) lineFrom(input []byte) ([]byte, []byte) {
 	return nil, input
 }
 
+func sanitizeName(name string) string {
+	b := make([]byte, len(name))
+	var bl int
+
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case (c >= byte('a') && c <= byte('z')) ||
+			(c >= byte('A') && c <= byte('Z')) ||
+			(c >= byte('0') && c <= byte('9')) ||
+			c == byte('-') || c == byte('.') ||
+			c == byte('_'):
+			b[bl] = c
+			bl++
+		case c == byte(' '):
+			b[bl] = byte('_')
+			bl++
+		case c == byte('/'):
+			b[bl] = byte('_')
+			bl++
+		}
+	}
+	return string(b[:bl])
+}
+
 func parseLine(line []byte) *Packet {
 	split := bytes.SplitN(line, []byte{'|'}, 3)
 	if len(split) < 2 {
@@ -269,11 +268,7 @@ func parseLine(line []byte) *Packet {
 		if len(split) == 3 && len(split[2]) > 0 && split[2][0] == '@' {
 			f64, err := strconv.ParseFloat(string(split[2][1:]), 32)
 			if err != nil {
-				logging.Printf(
-					"ERROR: failed to ParseFloat %s - %s",
-					string(split[2][1:]),
-					err,
-				)
+				ErrorLog.Printf("ERROR: failed to ParseFloat %s - %s", string(split[2][1:]), err)
 				return nil
 			}
 			sampling = float32(f64)
@@ -302,7 +297,7 @@ func parseLine(line []byte) *Packet {
 	case "c":
 		floatval, err = strconv.ParseFloat(string(val), 64)
 		if err != nil {
-			logging.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
+			ErrorLog.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
 			return nil
 		}
 	case "g":
@@ -316,7 +311,7 @@ func parseLine(line []byte) *Packet {
 		}
 		floatval, err = strconv.ParseFloat(s, 64)
 		if err != nil {
-			logging.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
+			ErrorLog.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
 			return nil
 		}
 	case "s":
@@ -324,16 +319,16 @@ func parseLine(line []byte) *Packet {
 	case "ms":
 		floatval, err = strconv.ParseFloat(string(val), 64)
 		if err != nil {
-			logging.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
+			ErrorLog.Printf("ERROR: failed to ParseFloat %s - %s", string(val), err)
 			return nil
 		}
 	default:
-		logging.Printf("ERROR: unrecognized type code %q for metric %s", typeCode, name)
+		ErrorLog.Printf("ERROR: unrecognized type code %q for metric %s", typeCode, name)
 		return nil
 	}
 
 	return &Packet{
-		Bucket:   sanitizeBucket(*prefix + string(name) + *postfix),
+		Metric:   sanitizeName(name),
 		ValFlt:   floatval,
 		ValStr:   strval,
 		Modifier: typeCode,
@@ -342,9 +337,7 @@ func parseLine(line []byte) *Packet {
 }
 
 func logParseFail(line []byte) {
-	if *debug {
-		logging.Printf("ERROR: failed to parse line: %q\n", string(line))
-	}
+	ErrorLog.Printf("ERROR: failed to parse line: %q\n", string(line))
 }
 
 func parseTo(conn io.ReadCloser, partialReads bool, out chan<- *Packet) {
@@ -365,12 +358,10 @@ func parseTo(conn io.ReadCloser, partialReads bool, out chan<- *Packet) {
 
 func udpListener() {
 	address, _ := net.ResolveUDPAddr("udp", *serviceAddress)
-	if *debug {
-		logging.Printf("listening on %s UDP", address)
-	}
+	DebugLog.Printf("listening on %s UDP", address)
 	listener, err := net.ListenUDP("udp", address)
 	if err != nil {
-		logging.Fatalf("ERROR: ListenUDP - %s", err)
+		ErrorLog.Fatalf("ListenUDP - %s", err)
 	}
 
 	parseTo(listener, false, In)
@@ -378,19 +369,17 @@ func udpListener() {
 
 func tcpListener() {
 	address, _ := net.ResolveTCPAddr("tcp", *tcpServiceAddress)
-	if *debug {
-		logging.Printf("listening on %s TCP", address)
-	}
+	DebugLog.Printf("listening on %s TCP", address)
 	listener, err := net.ListenTCP("tcp", address)
 	if err != nil {
-		logging.Fatalf("ERROR: ListenTCP - %s", err)
+		ErrorLog.Fatalf("ListenTCP - %s", err)
 	}
 	defer listener.Close()
 
 	for {
 		conn, err := listener.AcceptTCP()
 		if err != nil {
-			logging.Fatalf("ERROR: AcceptTCP - %s", err)
+			ErrorLog.Fatalf("AcceptTCP - %s", err)
 		}
 		go parseTo(conn, true, In)
 	}
@@ -404,6 +393,26 @@ func main() {
 		return
 	}
 
+	EnableLoggers(*trace, TraceLog, DebugLog, VerboseLog)
+	EnableLoggers(*debug, DebugLog, VerboseLog)
+	EnableLoggers(*verbose, VerboseLog)
+	if *trace {
+		*debug = true
+		*verbose = true
+	}
+	if *debug {
+		*verbose = true
+	}
+
+	/*
+	// not currently implemented
+	err := NewFromFile(*mappingFile)
+	if err != nil {
+		ErrorLog.Printf("Unable to read mapping file %s (%s)\n", *mappingFile, err)
+		os.Exit(1)
+	}
+	*/
+
 	signalchan = make(chan os.Signal, 1)
 	signal.Notify(signalchan, syscall.SIGTERM)
 	signal.Notify(signalchan, syscall.SIGINT)
@@ -413,4 +422,5 @@ func main() {
 		go tcpListener()
 	}
 	consume()
+	os.Exit(0)
 }
