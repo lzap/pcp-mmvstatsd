@@ -1,8 +1,12 @@
+i=0
 while true; do
-  echo "example.counter:23230000|c" | nc -w 1 -u localhost 8125
-  echo "example.timer:120|ms" | nc -w 1 -u localhost 8125
-  echo "example.gauge:10|g" | nc -w 1 -u localhost 8125
-  echo "example.gauge:+1|g" | nc -w 1 -u localhost 8125
-  echo "example.gauge:-1|g" | nc -w 1 -u localhost 8125
-  sleep 0.2
+  let i=i+1
+  echo "example.counter:1|c" | nc -w 1 -u localhost 8125
+  echo "example.counter_tens:10|c" | nc -w 1 -u localhost 8125
+  echo "example.counter_random:$RANDOM|c" | nc -w 1 -u localhost 8125
+  echo "example.timer:$RANDOM|ms" | nc -w 1 -u localhost 8125
+  echo "example.gauge:$RANDOM|g" | nc -w 1 -u localhost 8125
+  echo "example.gauge:+$i|g" | nc -w 1 -u localhost 8125
+  echo "example.gauge:-$i|g" | nc -w 1 -u localhost 8125
+  sleep 1
 done

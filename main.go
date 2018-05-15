@@ -46,34 +46,28 @@ var metricMap = make(map[string]speed.Metric)
 var histograms = make(map[string]speed.Histogram)
 
 func consume() {
-	client, err := speed.NewPCPClient("statsd")
-	if err != nil {
-		panic(err)
-	}
-	// keep metrics across restarts
-	err = client.SetFlag(0)
-	if err != nil {
-		panic(err)
-	}
-	client.MustStart()
-	defer client.Stop()
+	creg := NewClientRegistry()
+	defer creg.Stop()
 	for {
 		select {
 		case sig := <-signalchan:
-			speed.EraseFileOnStop = true
 			DebugLog.Printf("Shutting down on signal %v\n", sig)
 			return
 		case s := <-In:
-			packetHandler(s, client)
+			packetHandler(s, creg)
 		}
 	}
 }
 
-func findHistogram(client speed.Client, bucket string) (speed.Histogram, error) {
+func findHistogram(creg ClientRegistry, bucket string) (speed.Histogram, error) {
 	if histograms[bucket] == nil {
+		client, err := creg.FindClientForMetric(bucket)
+		if err != nil {
+			panic(err)
+		}
 		client.MustStop()
 		defer client.MustStart()
-		var h, err = speed.NewPCPHistogram(bucket, 0, 86400000, 3, speed.MillisecondUnit) // 0 to 24 hours
+		h, err := speed.NewPCPHistogram(bucket, 0, 86400000, 3, speed.MillisecondUnit) // 0 to 24 hours
 		client.MustRegister(h)
 		if err != nil {
 			ErrorLog.Printf("Unable to register histogram %s (%s)\n", bucket, err)
@@ -84,28 +78,37 @@ func findHistogram(client speed.Client, bucket string) (speed.Histogram, error) 
 	return histograms[bucket], nil
 }
 
-func findMetric(client speed.Client, metric string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
-	if metricMap[metric] == nil {
+func findMetric(creg ClientRegistry, name string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
+	metricFound, ok := metricMap[name]
+	if ok {
+		DebugLog.Printf("Found %s", name)
+		return metricFound, nil
+	} else {
+		client, err := creg.FindClientForMetric(name)
+		if err != nil {
+			panic(err)
+		}
 		client.MustStop()
 		defer client.MustStart()
-		var err error
-		metricMap[metric], err = client.RegisterString(metric, val, t, s, u)
+		DebugLog.Printf("Registering %s", name)
+		metric, err := client.RegisterString(name, val, t, s, u)
 		if err != nil {
-			ErrorLog.Printf("Unable to register metric %s (%s)\n", metric, err)
-			return nil, fmt.Errorf("Unable to register metric %s", metric)
+			ErrorLog.Printf("Unable to register metric %s (%s)\n", name, err)
+			return nil, fmt.Errorf("Unable to register metric %s", name)
 		}
+		metricMap[name] = metric
+		return metric, nil
 	}
-	return metricMap[metric], nil
 }
 
-func packetHandler(s *Packet, client speed.Client) {
+func packetHandler(s *Packet, creg ClientRegistry) {
 	if *debug {
-		TraceLog.Printf("Packet: %+v\n", s)
+		//TraceLog.Printf("Packet: %+v\n", s)
 	}
 
 	switch s.Modifier {
 	case "ms":
-		m, err := findHistogram(client, s.Metric)
+		m, err := findHistogram(creg, s.Metric)
 		if err == nil {
 			m.MustRecord(int64(s.ValFlt))
 			if *debug {
@@ -113,7 +116,7 @@ func packetHandler(s *Packet, client speed.Client) {
 			}
 		}
 	case "g":
-		m, err := findMetric(client, s.Metric, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit)
+		m, err := findMetric(creg, s.Metric, float64(0), speed.DoubleType, speed.InstantSemantics, speed.OneUnit)
 		if err == nil {
 			if s.ValStr == "" {
 				m.(speed.SingletonMetric).MustSet(s.ValFlt)
@@ -133,7 +136,7 @@ func packetHandler(s *Packet, client speed.Client) {
 			}
 		}
 	case "c":
-		m, err := findMetric(client, s.Metric, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
+		m, err := findMetric(creg, s.Metric, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
 		if err == nil {
 			m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt))
 			if *debug {
