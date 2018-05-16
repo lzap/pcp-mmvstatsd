@@ -81,7 +81,6 @@ func findHistogram(creg ClientRegistry, bucket string) (speed.Histogram, error) 
 func findMetric(creg ClientRegistry, name string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
 	metricFound, ok := metricMap[name]
 	if ok {
-		DebugLog.Printf("Found %s", name)
 		return metricFound, nil
 	} else {
 		client, err := creg.FindClientForMetric(name)
@@ -90,7 +89,6 @@ func findMetric(creg ClientRegistry, name string, val interface{}, t speed.Metri
 		}
 		client.MustStop()
 		defer client.MustStart()
-		DebugLog.Printf("Registering %s", name)
 		metric, err := client.RegisterString(name, val, t, s, u)
 		if err != nil {
 			ErrorLog.Printf("Unable to register metric %s (%s)\n", name, err)
@@ -102,17 +100,15 @@ func findMetric(creg ClientRegistry, name string, val interface{}, t speed.Metri
 }
 
 func packetHandler(s *Packet, creg ClientRegistry) {
-	if *debug {
-		//TraceLog.Printf("Packet: %+v\n", s)
-	}
+	//TraceLog.Printf("Packet: %+v\n", s)
 
 	switch s.Modifier {
 	case "ms":
 		m, err := findHistogram(creg, s.Metric)
 		if err == nil {
 			m.MustRecord(int64(s.ValFlt))
-			if *debug {
-				DebugLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+			if *trace {
+				TraceLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 			}
 		}
 	case "g":
@@ -120,18 +116,18 @@ func packetHandler(s *Packet, creg ClientRegistry) {
 		if err == nil {
 			if s.ValStr == "" {
 				m.(speed.SingletonMetric).MustSet(s.ValFlt)
-				if *debug {
-					DebugLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				if *trace {
+					TraceLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 				}
 			} else if s.ValStr == "+" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) + s.ValFlt)
-				if *debug {
-					DebugLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				if *trace {
+					TraceLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 				}
 			} else if s.ValStr == "-" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) - s.ValFlt)
-				if *debug {
-					DebugLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				if *trace {
+					TraceLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
 				}
 			}
 		}
@@ -139,8 +135,8 @@ func packetHandler(s *Packet, creg ClientRegistry) {
 		m, err := findMetric(creg, s.Metric, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
 		if err == nil {
 			m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt))
-			if *debug {
-				DebugLog.Printf("%s %d\n", s.Metric, m.(speed.SingletonMetric).Val())
+			if *trace {
+				TraceLog.Printf("%s %d\n", s.Metric, m.(speed.SingletonMetric).Val())
 			}
 		}
 	}

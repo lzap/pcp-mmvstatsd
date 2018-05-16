@@ -45,7 +45,7 @@ func (registry ClientRegistry) FindClientForMetric(metric string) (*speed.PCPCli
 	} else {
 		// create new client
 		clientName := clusterName(clusterHash)
-		DebugLog.Printf("Creating new cluster/client named '%s'\n", clientName)
+		DebugLog.Printf("Creating client named '%s'\n", clientName)
 		client, err := speed.NewPCPClient(clientName)
 		if err != nil {
 			return nil, err
@@ -63,7 +63,7 @@ func (registry ClientRegistry) FindClientForMetric(metric string) (*speed.PCPCli
 		existingName, ok := metricRegistry[metricHash]
 		if ok {
 			if metric != existingName {
-				TraceLog.Printf("Possible collision: '%s' vs '%s'", existingName, metric)
+				TraceLog.Printf("Possible collision: %s vs %s (c:%d, m:%d)", existingName, metric, clusterHash, metricHash)
 			}
 		} else {
 			metricRegistry[metricHash] = metric
