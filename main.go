@@ -34,9 +34,9 @@ var (
 	serviceAddress    = flag.String("address", ":8125", "UDP service address")
 	tcpServiceAddress = flag.String("tcpaddr", "", "TCP service address, if set")
 	maxUdpPacketSize  = flag.Int64("max-udp-packet-size", 1472, "Maximum UDP packet size")
-	debug             = flag.Bool("debug", false, "enable debugging output")
+	debug             = flag.Bool("debug", false, "enable debugging output and print hash collisions")
 	verbose           = flag.Bool("verbose", false, "enable verbose output")
-	trace             = flag.Bool("trace", false, "enable tracing output")
+	trace             = flag.Bool("trace", false, "enable tracing output (very chatty)")
 	showVersion       = flag.Bool("version", false, "print version string")
 	//mappingFile       = flag.String("mapping", "mapping.json", "Mapping file (JSON format)")
 )
@@ -46,7 +46,7 @@ var metricMap = make(map[string]speed.Metric)
 var histograms = make(map[string]speed.Histogram)
 
 func consume() {
-	creg := NewClientRegistry()
+	creg := NewClientRegistry(*debug)
 	defer creg.Stop()
 	for {
 		select {
@@ -59,7 +59,7 @@ func consume() {
 	}
 }
 
-func findHistogram(creg ClientRegistry, bucket string) (speed.Histogram, error) {
+func findHistogram(creg *ClientRegistry, bucket string) (speed.Histogram, error) {
 	if histograms[bucket] == nil {
 		client, err := creg.FindClientForMetric(bucket)
 		if err != nil {
@@ -78,7 +78,7 @@ func findHistogram(creg ClientRegistry, bucket string) (speed.Histogram, error) 
 	return histograms[bucket], nil
 }
 
-func findMetric(creg ClientRegistry, name string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
+func findMetric(creg *ClientRegistry, name string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
 	metricFound, ok := metricMap[name]
 	if ok {
 		return metricFound, nil
@@ -99,7 +99,7 @@ func findMetric(creg ClientRegistry, name string, val interface{}, t speed.Metri
 	}
 }
 
-func packetHandler(s *Packet, creg ClientRegistry) {
+func packetHandler(s *Packet, creg *ClientRegistry) {
 	//TraceLog.Printf("Packet: %+v\n", s)
 
 	switch s.Modifier {
@@ -357,7 +357,7 @@ func parseTo(conn io.ReadCloser, partialReads bool, out chan<- *Packet) {
 
 func udpListener() {
 	address, _ := net.ResolveUDPAddr("udp", *serviceAddress)
-	DebugLog.Printf("listening on %s UDP", address)
+	VerboseLog.Printf("listening on %s UDP", address)
 	listener, err := net.ListenUDP("udp", address)
 	if err != nil {
 		ErrorLog.Fatalf("ListenUDP - %s", err)
@@ -368,7 +368,7 @@ func udpListener() {
 
 func tcpListener() {
 	address, _ := net.ResolveTCPAddr("tcp", *tcpServiceAddress)
-	DebugLog.Printf("listening on %s TCP", address)
+	VerboseLog.Printf("listening on %s TCP", address)
 	listener, err := net.ListenTCP("tcp", address)
 	if err != nil {
 		ErrorLog.Fatalf("ListenTCP - %s", err)

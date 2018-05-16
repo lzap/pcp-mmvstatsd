@@ -6,16 +6,22 @@ import (
  	"hash/fnv"
 )
 
-type ClientRegistry map[uint32]*speed.PCPClient
+type ClientRegistry struct {
+	PCPClients map[uint32]*speed.PCPClient
+	CheckCollisions bool
+	CollisionCounter int
+}
 
 var (
 	metricRegistry map[uint32]string
 )
 
-func NewClientRegistry() ClientRegistry {
+const MAX_COLLISIONS_REPORTED = 10000
+
+func NewClientRegistry(check bool) *ClientRegistry {
 	speed.EraseFileOnStop = false
 	metricRegistry = make(map[uint32]string)
-	return make(ClientRegistry)
+	return &ClientRegistry{make(map[uint32]*speed.PCPClient), check, 0}
 }
 
 // Hash mechanism used in Speed library.
@@ -37,9 +43,9 @@ func clusterName(hash uint32) string {
 	return "statsd_" + strconv.FormatUint(uint64(hash >> 8), 16)
 }
 
-func (registry ClientRegistry) FindClientForMetric(metric string) (*speed.PCPClient, error) {
+func (registry *ClientRegistry) FindClientForMetric(metric string) (*speed.PCPClient, error) {
 	clusterHash, metricHash  := hash610(metric)
-	client, ok := registry[clusterHash]
+	client, ok := registry.PCPClients[clusterHash]
 	if ok {
 		return client, nil
 	} else {
@@ -58,23 +64,28 @@ func (registry ClientRegistry) FindClientForMetric(metric string) (*speed.PCPCli
 		if err != nil {
 			return nil, err
 		}
-		registry[clusterHash] = client
-		// check for collisions
-		existingName, ok := metricRegistry[metricHash]
-		if ok {
-			if metric != existingName {
-				TraceLog.Printf("Possible collision: %s vs %s (c:%d, m:%d)", existingName, metric, clusterHash, metricHash)
+		registry.PCPClients[clusterHash] = client
+		if registry.CheckCollisions && registry.CollisionCounter < MAX_COLLISIONS_REPORTED {
+			// check for collisions
+			existingName, ok := metricRegistry[metricHash]
+			if ok {
+				if metric != existingName {
+					DebugLog.Printf("Possible collision: %s vs %s (c:%d, m:%d)\n", existingName, metric, clusterHash, metricHash)
+					if registry.CollisionCounter == MAX_COLLISIONS_REPORTED {
+						DebugLog.Printf("Too many collisions reported, disabled collision logging\n")
+					}
+				}
+			} else {
+				metricRegistry[metricHash] = metric
 			}
-		} else {
-			metricRegistry[metricHash] = metric
 		}
 		return client, nil
 	}
 }
 
-func (registry ClientRegistry) Stop() {
+func (registry *ClientRegistry) Stop() {
 	speed.EraseFileOnStop = true
-	for clusterId, client := range registry {
+	for clusterId, client := range registry.PCPClients {
 		DebugLog.Printf("Stopping client %s", clusterName(clusterId))
 		client.MustStop()
 	}
