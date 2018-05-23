@@ -42,8 +42,8 @@ var (
 )
 
 var In = make(chan *Packet, MAX_UNPROCESSED_PACKETS)
-var metricMap = make(map[string]speed.Metric)
-var histograms = make(map[string]speed.Histogram)
+var knownMetrics = make(map[string]speed.Metric)
+var knownHistograms = make(map[string]speed.Histogram)
 
 func consume() {
 	creg := NewClientRegistry(*debug)
@@ -59,29 +59,32 @@ func consume() {
 	}
 }
 
-func findHistogram(creg *ClientRegistry, bucket string) (speed.Histogram, error) {
-	if histograms[bucket] == nil {
-		client, err := creg.FindClientForMetric(bucket)
+func findHistogram(creg *ClientRegistry, name string) (speed.Histogram, error) {
+	histogram, ok := knownHistograms[name]
+	if ok {
+		return histogram, nil
+	} else {
+		client, err := creg.FindClientForMetric(name)
 		if err != nil {
 			panic(err)
 		}
 		client.MustStop()
 		defer client.MustStart()
-		h, err := speed.NewPCPHistogram(bucket, 0, 86400000, 3, speed.MillisecondUnit) // 0 to 24 hours
-		client.MustRegister(h)
+		hist, err := speed.NewPCPHistogram(name, 0, 86400000, 3, speed.MillisecondUnit) // 0 to 24 hours
+		client.MustRegister(hist)
 		if err != nil {
-			ErrorLog.Printf("Unable to register histogram %s (%s)\n", bucket, err)
-			return nil, fmt.Errorf("Unable to register histogram %s", bucket)
+			ErrorLog.Printf("Unable to register histogram %s (%s)\n", name, err)
+			return nil, fmt.Errorf("Unable to register histogram %s", name)
 		}
-		histograms[bucket] = h
+		knownHistograms[name] = hist
+		return hist, nil
 	}
-	return histograms[bucket], nil
 }
 
 func findMetric(creg *ClientRegistry, name string, val interface{}, t speed.MetricType, s speed.MetricSemantics, u speed.MetricUnit) (speed.Metric, error) {
-	metricFound, ok := metricMap[name]
+	metric, ok := knownMetrics[name]
 	if ok {
-		return metricFound, nil
+		return metric, nil
 	} else {
 		client, err := creg.FindClientForMetric(name)
 		if err != nil {
@@ -94,7 +97,7 @@ func findMetric(creg *ClientRegistry, name string, val interface{}, t speed.Metr
 			ErrorLog.Printf("Unable to register metric %s (%s)\n", name, err)
 			return nil, fmt.Errorf("Unable to register metric %s", name)
 		}
-		metricMap[name] = metric
+		knownMetrics[name] = metric
 		return metric, nil
 	}
 }
