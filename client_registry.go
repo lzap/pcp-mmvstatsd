@@ -16,7 +16,7 @@ var (
 	metricRegistry map[uint32]string
 )
 
-const MAX_COLLISIONS_REPORTED = 10000
+const MAX_COLLISIONS_REPORTED = 2000
 
 func NewClientRegistry(check bool) *ClientRegistry {
 	speed.EraseFileOnStop = false
@@ -27,7 +27,7 @@ func NewClientRegistry(check bool) *ClientRegistry {
 // Hash mechanism used in Speed library.
 // Returns 6 bits for client/cluster and 10 bits for metric.
 // This generates maximum of 64 clusters.
-func hash610(s string) (uint32, uint32) {
+func hash610(s string) (uint32, uint32, uint32) {
   h := fnv.New32a()
   _, err := h.Write([]byte(s))
   if err != nil {
@@ -36,15 +36,15 @@ func hash610(s string) (uint32, uint32) {
   hash := h.Sum32()
   x06 := hash & 0xFC00
   x10 := hash & 0x03FF
-  return x06, x10
+  return (x06 >> 16), x10, (hash & 0xFFFF)
 }
 
 func clusterName(hash uint32) string {
-	return "statsd_" + strconv.FormatUint(uint64(hash >> 8), 16)
+	return "statsd_" + strconv.FormatUint(uint64(hash), 16)
 }
 
 func (registry *ClientRegistry) FindClientForMetric(metric string) (*speed.PCPClient, error) {
-	clusterHash, metricHash  := hash610(metric)
+	clusterHash, _, hash32  := hash610(metric)
 	client, ok := registry.PCPClients[clusterHash]
 	if ok {
 		return client, nil
@@ -67,16 +67,16 @@ func (registry *ClientRegistry) FindClientForMetric(metric string) (*speed.PCPCl
 		registry.PCPClients[clusterHash] = client
 		if registry.CheckCollisions && registry.CollisionCounter < MAX_COLLISIONS_REPORTED {
 			// check for collisions
-			existingName, ok := metricRegistry[metricHash]
+			existingName, ok := metricRegistry[hash32]
 			if ok {
 				if metric != existingName {
-					DebugLog.Printf("Possible collision: %s vs %s (c:%d, m:%d)\n", existingName, metric, clusterHash, metricHash)
+					DebugLog.Printf("Hash collision: %s vs %s (%X)\n", existingName, metric, hash32)
 					if registry.CollisionCounter == MAX_COLLISIONS_REPORTED {
 						DebugLog.Printf("Too many collisions reported, disabled collision logging\n")
 					}
 				}
 			} else {
-				metricRegistry[metricHash] = metric
+				metricRegistry[hash32] = metric
 			}
 		}
 		return client, nil
