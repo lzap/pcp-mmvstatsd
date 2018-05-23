@@ -59,11 +59,21 @@ func consume() {
 	}
 }
 
+func ensureNotKnown(name string) {
+	_, histogram_found := knownHistograms[name]
+	_, metric_found := knownMetrics[name]
+	if (histogram_found || metric_found) {
+		ErrorLog.Printf("Name already taken %s, exiting...\n", name)
+		os.Exit(2)
+	}
+}
+
 func findHistogram(creg *ClientRegistry, name string) (speed.Histogram, error) {
 	histogram, ok := knownHistograms[name]
 	if ok {
 		return histogram, nil
 	} else {
+		ensureNotKnown(name)
 		client, err := creg.FindClientForMetric(name)
 		if err != nil {
 			panic(err)
@@ -86,6 +96,7 @@ func findMetric(creg *ClientRegistry, name string, val interface{}, t speed.Metr
 	if ok {
 		return metric, nil
 	} else {
+		ensureNotKnown(name)
 		client, err := creg.FindClientForMetric(name)
 		if err != nil {
 			panic(err)
