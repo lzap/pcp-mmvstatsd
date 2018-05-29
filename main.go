@@ -38,7 +38,6 @@ var (
 	verbose           = flag.Bool("verbose", false, "enable verbose output")
 	trace             = flag.Bool("trace", false, "enable tracing output (very chatty)")
 	showVersion       = flag.Bool("version", false, "print version string")
-	//mappingFile       = flag.String("mapping", "mapping.json", "Mapping file (JSON format)")
 )
 
 var In = make(chan *Packet, MAX_UNPROCESSED_PACKETS)
@@ -415,15 +414,6 @@ func main() {
 	if *debug {
 		*verbose = true
 	}
-
-	/*
-	// not currently implemented
-	err := NewFromFile(*mappingFile)
-	if err != nil {
-		ErrorLog.Printf("Unable to read mapping file %s (%s)\n", *mappingFile, err)
-		os.Exit(1)
-	}
-	*/
 
 	signalchan = make(chan os.Signal, 1)
 	signal.Notify(signalchan, syscall.SIGTERM)
