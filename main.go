@@ -120,9 +120,11 @@ func packetHandler(s *Packet, creg *ClientRegistry) {
 	case "ms":
 		m, err := findHistogram(creg, s.Metric)
 		if err == nil {
-			m.MustRecord(int64(s.ValFlt))
+			value := int64(s.ValFlt)
+			m.MustRecord(value)
+			//DebugLog.Printf("%s %0.1f -> %d (min:%d max:%d mean:%0.1f v:%0.1f sd:%0.1f)\n", s.Metric, s.ValFlt, int64(s.ValFlt), m.Min(), m.Max(), m.Mean(), m.Variance(), m.StandardDeviation())
 			if *trace {
-				TraceLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+				TraceLog.Printf("%s %0.3f (=%d)\n", s.Metric, s.ValFlt, value)
 			}
 		}
 	case "g":
@@ -131,26 +133,27 @@ func packetHandler(s *Packet, creg *ClientRegistry) {
 			if s.ValStr == "" {
 				m.(speed.SingletonMetric).MustSet(s.ValFlt)
 				if *trace {
-					TraceLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+					TraceLog.Printf("%s %0.3f\n", s.Metric, s.ValFlt)
 				}
 			} else if s.ValStr == "+" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) + s.ValFlt)
 				if *trace {
-					TraceLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+					TraceLog.Printf("%s %0.3f\n", s.Metric, s.ValFlt)
 				}
 			} else if s.ValStr == "-" {
 				m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(float64) - s.ValFlt)
 				if *trace {
-					TraceLog.Printf("%s %s\n", s.Metric, strconv.FormatFloat(s.ValFlt, 'f', -1, 64))
+					TraceLog.Printf("%s %0.3f\n", s.Metric, s.ValFlt)
 				}
 			}
 		}
 	case "c":
 		m, err := findMetric(creg, s.Metric, int64(0), speed.Int64Type, speed.CounterSemantics, speed.OneUnit)
 		if err == nil {
-			m.(speed.SingletonMetric).MustSet(m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt))
+			value := m.(speed.SingletonMetric).Val().(int64) + int64(s.ValFlt)
+			m.(speed.SingletonMetric).MustSet(value)
 			if *trace {
-				TraceLog.Printf("%s %d\n", s.Metric, m.(speed.SingletonMetric).Val())
+				TraceLog.Printf("%s %0.1f (=%d)\n", s.Metric, s.ValFlt, value)
 			}
 		}
 	}
@@ -251,14 +254,10 @@ func sanitizeName(name string) string {
 		case (c >= byte('a') && c <= byte('z')) ||
 			(c >= byte('A') && c <= byte('Z')) ||
 			(c >= byte('0') && c <= byte('9')) ||
-			c == byte('-') || c == byte('.') ||
-			c == byte('_'):
+			c == byte('.') || c == byte('_'):
 			b[bl] = c
 			bl++
-		case c == byte(' '):
-			b[bl] = byte('_')
-			bl++
-		case c == byte('/'):
+		case c == byte('/') || c == byte('-') || c == byte(' '):
 			b[bl] = byte('_')
 			bl++
 		}

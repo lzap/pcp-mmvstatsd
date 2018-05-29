@@ -36,7 +36,7 @@ func hash610(s string) (uint32, uint32, uint32) {
   hash := h.Sum32()
   x06 := hash & 0xFC00
   x10 := hash & 0x03FF
-  return (x06 >> 16), x10, (hash & 0xFFFF)
+  return (x06 >> 8), x10, (hash & 0xFFFF)
 }
 
 func clusterName(hash uint32) string {
