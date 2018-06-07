@@ -20,7 +20,7 @@ const (
 	TCP_READ_SIZE           = 4096
 )
 
-var signalchan chan os.Signal
+var signalShutdown chan os.Signal
 
 type Packet struct {
 	Metric   string
@@ -49,7 +49,7 @@ func consume() {
 	defer creg.Stop()
 	for {
 		select {
-		case sig := <-signalchan:
+		case sig := <-signalShutdown:
 			DebugLog.Printf("Shutting down on signal %v\n", sig)
 			return
 		case s := <-In:
@@ -67,6 +67,7 @@ func ensureNotKnown(name string) {
 	}
 }
 
+// TODO move to registry and add cache load/save
 func findHistogram(creg *ClientRegistry, name string) (speed.Histogram, error) {
 	histogram, ok := knownHistograms[name]
 	if ok {
@@ -121,7 +122,6 @@ func packetHandler(s *Packet, creg *ClientRegistry) {
 		if err == nil {
 			value := int64(s.ValFlt)
 			m.MustRecord(value)
-			//DebugLog.Printf("%s %0.1f -> %d (min:%d max:%d mean:%0.1f v:%0.1f sd:%0.1f)\n", s.Metric, s.ValFlt, int64(s.ValFlt), m.Min(), m.Max(), m.Mean(), m.Variance(), m.StandardDeviation())
 			if *trace {
 				TraceLog.Printf("%s %0.3f (=%d)\n", s.Metric, s.ValFlt, value)
 			}
@@ -415,9 +415,9 @@ func main() {
 		*verbose = true
 	}
 
-	signalchan = make(chan os.Signal, 1)
-	signal.Notify(signalchan, syscall.SIGTERM)
-	signal.Notify(signalchan, syscall.SIGINT)
+	signalShutdown = make(chan os.Signal, 1)
+	signal.Notify(signalShutdown, syscall.SIGTERM)
+	signal.Notify(signalShutdown, syscall.SIGINT)
 
 	go udpListener()
 	if *tcpServiceAddress != "" {
