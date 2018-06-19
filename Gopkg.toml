@@ -27,7 +27,8 @@
 
 [[constraint]]
   name = "github.com/performancecopilot/speed"
-  version = "3.0.0"
+  #version = "3.0.0"
+  revision = "d49dd9b77adc20c17eb89d8d4c1b0af8f8ae90e3"
 
 [prune]
   go-tests = true

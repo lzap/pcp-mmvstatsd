@@ -19,8 +19,7 @@
     ".",
     "bytewriter"
   ]
-  revision = "839069a3ed70162d3bcefb9891c8ca852d877c1c"
-  version = "v3.0.0"
+  revision = "d49dd9b77adc20c17eb89d8d4c1b0af8f8ae90e3"
 
 [[projects]]
   name = "github.com/pkg/errors"
@@ -31,6 +30,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "aa77c2345a5baae5e3117f5c178179bcc7a6c304fa3c347feb533955ffd9e079"
+  inputs-digest = "75963ad6db12247508b5d5869aa3468290ed93a4749ba445b2556b8fe2b7c6f8"
   solver-name = "gps-cdcl"
   solver-version = 1
